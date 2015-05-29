@@ -1,0 +1,18 @@
+[
+  {
+    "caption": "Label Sentences - Select Next Sentence",
+    "command": "select_next_sentence"
+  },
+  {
+    "caption": "Label Sentences - Surround Selection With Span",
+    "command": "surround_selection_with_span"
+  },
+  {
+    "caption": "Label Sentences - Surround Next Sentence With Span",
+    "command": "surround_next_sentence_with_span"
+  },
+    {
+    "caption": "Label Sentences - Re-Number Sentence Tags",
+    "command": "re_number_sentence_tags"
+  },
+]
