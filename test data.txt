@@ -20,14 +20,29 @@ If the answer were C.
 
 “It wasn’t bending spoons -”
 
-
 <p class="calibre2">This is the living-room of the house occupied by the eminent Professor Michael Verres-Evans, and his wife, Mrs. Petunia Evans-Verres, and their adopted son, Harry James Potter-Evans-Verres.</p>
+
+<p class="calibre2">This is a <em>sentence</em> containing some <em>nested tags for <strong>text markup.</strong></em></p>
+
+<p class="calibre2"><em>This</em> is a <span style="text-decoration: underline">sentence with more <span style="font-style: oblique">complicated markup</span> containing <span style="color:red">nested tags.</span></span></p>
 
 Something spelled A-S-I-B.
 
 Sentence after tag.
 
 <p>Some paragraph.</p>
+
+Sentence ending with an ellipses…
+
+"I said something!" said Harry.
+
+"What do I ask?" asked Harry.
+
+"I exclaim profoundly!" exclaimed Harry.
+
+"I am a male!" he said.
+
+"I am a female!" she said.
 
 Last Sentence.
 

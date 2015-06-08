@@ -2,6 +2,7 @@ import sublime, sublime_plugin
 
 # select the next sentence after the current selection
 class SelectNextSentenceCommand(sublime_plugin.TextCommand):
+  NoRegion = sublime.Region(-1, -1)
   endSentenceRx = (
     "("
       "("
@@ -10,8 +11,10 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
           "(?<![A-Z]\.[A-Z])(?<!\s[A-Z]\.\s[A-Z])"       # exclude dots after initials (doesn't catch first initial)
           "\.+"     # final punctuation is "."
         "|"         # or
-          "[?!]+"   # final punctuation is ? or !
-        ")”?"       # (.?!) may be followed by a close quote
+          "[?!]+"   # final punctuation is ? or ! (possibly repeated)
+        "|"         # or
+          "…"       # final punctuation is ellipses character: …
+        ")”?"       # (.?!…) may be followed by a close quote
       ")"
       "|"
         "-”"        # cut off dialogue ending (must end with close quote)
@@ -27,7 +30,7 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
     for r in s:
       sentence = self._findNextSentenceFromRegion(r)
       if sentence is not None:
-        print("found sentence: %(sentence)s" % locals())
+        print("found sentence: "+str(v.rowcol(sentence.begin()))+" - "+str(v.rowcol(sentence.end())))
         newRegions.append(sentence)
 
     if len(newRegions) > 0:
@@ -37,7 +40,7 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
     else:
       v.run_command("move_to", {"to": "eof", "extend": "false"})
 
-  # find the next region that specifies a sentence beginning after the current selection
+  # find the next region that specifies a sentence beginning in or after the given region
   def _findNextSentenceFromRegion(self, region):
     v = self.view
     precedingDotPos = self._lastSentenceEndingInOrFirstOneAfterRegion(region)
@@ -56,7 +59,13 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
     # continue searching for sentence end if sentence is 2 characters long: e.g. "A. first example"
     if sentenceEnd - firstWord == 2:
       sentenceEnd = v.find(self.endSentenceRx, sentenceEnd).end()
-    return sublime.Region(sentenceStart, sentenceEnd)
+
+    region = sublime.Region(sentenceStart, sentenceEnd)
+
+    # ensure that opening tags have matching closing tags (and vice versa) inside sentence region
+    correctedRegion = self._expandRegionToEnsureMatchingTags(region)
+
+    return correctedRegion
 
   # find the position of last sentence ending in the given region,
   # or the first one after it if no sentence end is contained within the region
@@ -90,6 +99,123 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
     else:
       # recursively search starting at end of next tag
       return self._getNextSentenceStartAfter(nextTag.end())
+
+  # returns a list of regions that match the given regular expression in the given region
+  def _findMatchesInRegion(self, matchRx, region):
+    v = self.view
+
+    nextMatch = v.find(matchRx, region.begin())
+    if not nextMatch.empty() and nextMatch.end() <= region.end():
+      subsequentRegion = sublime.Region(nextMatch.end(), region.end())
+      subsequentMatches = self._findMatchesInRegion(matchRx, subsequentRegion)
+      return [nextMatch] + subsequentMatches
+    else:
+      return []
+
+  # returns a list of regions that delineate the opening xml tags (e.g. <span>) in the given region
+  def _findOpeningTagsInRegion(self, region):
+    return self._findMatchesInRegion("<(?!/)[^>]+>", region)
+
+  # returns a list of regions that delineate the closing xml tags (e.g. <span>) in the given region
+  def _findClosingTagsInRegion(self, region):
+    return self._findMatchesInRegion("</[^>]+>", region)
+
+  # returns a bool indicating whether the given `regions` intersect the `region`
+  def _regionsIntersectRegion(self, regions, region):
+    for r in regions:
+      if r.intersects(region):
+        return True
+    return False
+
+  # returns the region enclosing the first closing tag of type `tagName`
+  # that doesn't intersect any region in `exclusions`
+  # starting at position `startingAt`
+  def _findFirstClosingTagAfter(self, tagName, startingAt, exclusions):
+    v = self.view
+    matchRx = "</" + tagName + ">"
+    match = v.find(matchRx, startingAt)
+    if self._regionsIntersectRegion(exclusions, match):
+      return self._findFirstClosingTagAfter(tagName, match.end(), exclusions)
+    else:
+      return match
+
+  # returns a region whose end is extended forward compared to `region` enough
+  # such that all tags that open inside the region also close inside the region
+  def _expandRegionToEncloseMatchingClosingTags(self, region):
+    v = self.view
+    openingTags = self._findOpeningTagsInRegion(region)
+    openingTags.reverse() # need to add excluded regions from right to left
+    exclusions = []
+    lastClosingTagEnd = region.end()
+    for openingTag in openingTags:
+      tagName = v.substr(v.find("\w+", openingTag.begin()))
+      closingTag = self._findFirstClosingTagAfter(tagName, openingTag.end(), exclusions)
+      newExclusion = sublime.Region(openingTag.begin(), closingTag.end())
+      exclusions.append(newExclusion)
+      lastClosingTagEnd = max(lastClosingTagEnd, closingTag.end())
+    return sublime.Region(region.begin(), lastClosingTagEnd)
+
+  # returns a region enclosing the last opening tag of type `tagName`
+  # that begins before `endingAt` and which doesn't intersect any of the
+  # regions in `exclusions`
+  def _findLastOpeningTagBefore(self, tagName, endingAt, exclusions):
+    v = self.view
+    matchRx = "<" + tagName + "\\b[^>]*>"
+
+    # finds the last tag of type `tagName` starting in region `region`
+    def findLastMatchInRegion(region):
+      firstMatch = v.find(matchRx, region.begin())
+      print("first match for '"+matchRx+"' in region = "+str(firstMatch))
+      if firstMatch.empty() or firstMatch.begin() > region.end():
+        return self.NoRegion
+      lastMatch = findLastMatchInRegion(sublime.Region(firstMatch.end(), region.end()))
+      if not lastMatch.empty():
+        return lastMatch
+      if self._regionsIntersectRegion(exclusions, firstMatch):
+        return self.NoRegion
+      return firstMatch
+
+    # finds the region enclosing the last tag of type `tagName` ending before point `endingAt`
+    def findLastBeforePoint(endPoint):
+      v = self.view
+      # initially search the 100 characters before endPoint
+      startPoint = max(0, endPoint - 100)
+      print("searching for "+tagName+" between "+str(v.rowcol(startPoint))+" and "+str(v.rowcol(endPoint)))
+      searchRegion = sublime.Region(startPoint, endPoint)
+      match = findLastMatchInRegion(searchRegion)
+      if match.empty():
+        if startPoint <= 0: # already searched back to beginning of file
+          print("failed to find an opening tag of type '"+tagName+"' before position "+str(endPoint))
+          return self.NoRegion
+        # continue searching in the block of 100 characters before this searchRegion
+        return findLastBeforePoint(startPoint)
+      return match
+
+    return findLastBeforePoint(endingAt)
+
+  # Returns a region whose beginning is extended backward compared to `region` enough
+  # such that all tags that close inside the region also open inside the region.
+  def _expandRegionToEncloseMatchingOpeningTags(self, region):
+    v = self.view
+    closingTags = self._findClosingTagsInRegion(region)
+
+    exclusions = []
+    firstOpeningTagBegin = region.begin()
+    for closingTag in closingTags:
+      tagName = v.substr(v.find("\w+", closingTag.begin()))
+      openingTag = self._findLastOpeningTagBefore(tagName, closingTag.begin(), exclusions)
+      newExclusion = sublime.Region(openingTag.begin(), closingTag.end())
+      exclusions.append(newExclusion)
+      firstOpeningTagBegin = min(firstOpeningTagBegin, openingTag.begin())
+    return sublime.Region(firstOpeningTagBegin, region.end())
+
+  # Returns a region whose beginning and end are extended outward compared to
+  # `region` enough that all tags that open inside the region also close
+  # inside the region and vice versa.
+  def _expandRegionToEnsureMatchingTags(self, region):
+    expanded = self._expandRegionToEncloseMatchingClosingTags(region)
+    expanded = self._expandRegionToEncloseMatchingOpeningTags(expanded)
+    return expanded
 
 # surround the current selection with <span> opening and closing tags, with id="s00000"
 class SurroundSelectionWithSpanCommand(sublime_plugin.TextCommand):
