@@ -20,6 +20,12 @@ If the answer were C.
 
 “It wasn’t bending spoons -”
 
+“I’ll - have to think about this,” he said, trying to keep his voice under control.
+
+“Mr. Potter… do you know… how <em class="calibre4">much</em> have you been told… about how your parents died?”
+
+“What… <em class="calibre4">did</em> happen?”
+
 <p class="calibre2">This is the living-room of the house occupied by the eminent Professor Michael Verres-Evans, and his wife, Mrs. Petunia Evans-Verres, and their adopted son, Harry James Potter-Evans-Verres.</p>
 
 <p class="calibre2">This is a <em>sentence</em> containing some <em>nested tags for <strong>text markup.</strong></em></p>
@@ -43,6 +49,12 @@ Sentence ending with an ellipses…
 "I am a male!" he said.
 
 "I am a female!" she said.
+
+<p class="calibre2">A blur was coming over Harry’s vision, as his brain started to comprehend what had just broken. The whole idea of a unified universe with mathematically regular laws, that was what had been flushed down the toilet; the whole notion of <em class="calibre4">physics</em>. Three thousand years of resolving big complicated things into smaller pieces, discovering that the music of the planets was the same tune as a falling apple, finding that the true laws were perfectly universal and had no exceptions anywhere and took the form of simple maths governing the smallest parts, <em class="calibre4">not to mention </em>that the mind was the brain and the brain was made of neurons, a brain was what a person <em class="calibre4">was</em> -</p>
+
+.
+
+There were merchants hawking Bounce Boots (“Made with real Flubber!”) and “Knives +3! Forks +2! Spoons with a +4 bonus!”
 
 Last Sentence.
 

@@ -1,5 +1,12 @@
 import sublime, sublime_plugin
 
+# todo: detect when selection contains an already-labelled sentence r"s\d{5}" or a <p> element and stop with a popup error message
+# todo: '-' followed by a </p> without any text in between is a sentence ending
+# todo: '…' followed by non-capital letter does not end sentence
+# todo: ensure closing parentheses at end of sentence are included in span
+# todo: ensure opening parentheses at start of sentence are included in span
+# todo: "he said" or variants after speech should be included in sentence
+
 # select the next sentence after the current selection
 class SelectNextSentenceCommand(sublime_plugin.TextCommand):
   NoRegion = sublime.Region(-1, -1)
@@ -8,7 +15,8 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
       "("
         "("
           "(?<!Mr)(?<!Mrs)(?<!Ms)(?<!Dr)(?<!Sr)(?<!Jr)"  # exclude dots after common abbreviations
-          "(?<![A-Z]\.[A-Z])(?<!\s[A-Z]\.\s[A-Z])"       # exclude dots after initials (doesn't catch first initial)
+          "(?<![A-Z]\.[A-Z])"           # exclude dots in doted abbreviations (doesn't catch first dot)
+          "(?<!\s[A-Z]\.\s[A-Z])"       # exclude dots after initials (doesn't catch first initial)
           "\.+"     # final punctuation is "."
         "|"         # or
           "[?!]+"   # final punctuation is ? or ! (possibly repeated)
@@ -19,8 +27,8 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
       "|"
         "-”"        # cut off dialogue ending (must end with close quote)
     ")"
-    "(?!\w)"        # last character of sentence cannot be succeeded directly by a letter
-    "(?! [A-Z]\.)"  # exclude first dot in spaced initials such as "J. K. Rowling"
+    "(?!\w)"        # last character of sentence cannot be succeeded directly by a letter (catches first dot in abbreviations)
+    "(?!\s[A-Z]\.)"  # exclude first dot in spaced initials such as "J. K. Rowling"
   )
 
   def run(self, edit):
