@@ -52,9 +52,9 @@ Sentence ending with an ellipses…
 
 <p class="calibre2">A blur was coming over Harry’s vision, as his brain started to comprehend what had just broken. The whole idea of a unified universe with mathematically regular laws, that was what had been flushed down the toilet; the whole notion of <em class="calibre4">physics</em>. Three thousand years of resolving big complicated things into smaller pieces, discovering that the music of the planets was the same tune as a falling apple, finding that the true laws were perfectly universal and had no exceptions anywhere and took the form of simple maths governing the smallest parts, <em class="calibre4">not to mention </em>that the mind was the brain and the brain was made of neurons, a brain was what a person <em class="calibre4">was</em> -</p>
 
-.
-
 There were merchants hawking Bounce Boots (“Made with real Flubber!”) and “Knives +3! Forks +2! Spoons with a +4 bonus!”
+
+<span id="s00000">Some already surrounded Sentence.</span>
 
 Last Sentence.
 
