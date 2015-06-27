@@ -18,9 +18,9 @@ If the answer were C.
 
 “Of course it was my fault. There’s no one else here who could be responsible for anything.”
 
-“It wasn’t bending spoons -”
+<p>“It wasn’t bending spoons -”</p>
 
-“I’ll - have to think about this,” he said, trying to keep his voice under control.
+<p>“I’ll - have to think about this,” he said, trying to keep his voice under control.</p>
 
 “Mr. Potter… do you know… how <em class="calibre4">much</em> have you been told… about how your parents died?”
 

@@ -2,8 +2,6 @@ import sublime, sublime_plugin
 import re
 
 # todo: ensure that sentence ending is followed by a sentence beginning (or EOF) without any text in between
-# todo: '-' followed by a </p> without any text in between is a sentence ending
-# todo: '…' followed by non-capital letter does not end sentence
 # todo: ensure closing parentheses at end of sentence are included in span
 # todo: ensure opening parentheses at start of sentence are included in span
 # todo: "he said" or variants after speech should be included in sentence
@@ -14,6 +12,7 @@ openTagRx = r"<\w[^>]+>"
 closeTagRx = r"</\w+>"
 tagRx = r"<[^>]+>"
 startSentenceRx = r"\(?[“\"]?\(?[A-Z0-9]"
+upToNextTextRx = r"(\s*<[^>]+>)*\s*(?=[^<>\s])"
 endSentenceRx = (
   r"("
     "("
@@ -102,12 +101,18 @@ class ReNumberSentenceTagsCommand(sublime_plugin.TextCommand):
 
 # ====== private helpers ======
 
+# Find the next sentence starting after the given point
 def _findNextSentenceAfterPoint(self, point):
   v = self.view
 
   sentenceStart = _getNextSentenceStartAfter(self, point)
   if sentenceStart == -1: return None
   return _findSentenceStartingAt(self, sentenceStart)
+
+# returns the position of the next character of text within the xml doc,
+# starting from `searchFrom`
+def _findNextText(view, searchFrom):
+  return view.find(upToNextTextRx, searchFrom).end()
 
 # Find the sentence immediately following the sentence delineated by the given region.
 # The command fails with an error message if non-space text is found
@@ -117,7 +122,7 @@ def _findNextSentenceAfterRegion(self, region):
 
   sentenceStart = _getNextSentenceStartAfter(self, region.end())
   if sentenceStart == -1: return None
-  nextText = v.find(r"(\s*<[^>]+>)*\s*(?=[^<>\s])", region.end()).end()
+  nextText = _findNextText(v, region.end())
   if nextText < sentenceStart:
     print("There is text between the end of the selection and the start of the next sentence.")
     return None
@@ -141,29 +146,27 @@ def _findSentenceStartingAt(self, sentenceStart):
 
   return correctedRegion
 
-
-# find the position of last sentence ending in the given region,
-# or the first one after it if no sentence end is contained within the region
-def _lastSentenceEndInOrFirstOneAfterRegion(self, region):
-  v = self.view
-
-  pos = -1
-  searchFrom = region.begin()
-  regionEnd = region.end()
-  while searchFrom <= region.end():
-    newPos = _findEndOfSentenceStartingAt(self, searchFrom)
-    if newPos == -1 or newPos == region.end():
-      return newPos
-    if pos < 0 or newPos <= region.end():
-      pos = newPos
-    searchFrom = newPos
-
-  return pos
-
 def _findEndOfSentenceStartingAt(self, sentenceStart):
   v = self.view
 
-  candidate = v.find(endSentenceRx, sentenceStart).end()
+  candidateR = v.find(endSentenceRx, sentenceStart)
+  candidateStr = v.substr(candidateR)
+  candidate = candidateR.end()
+
+  nextCloseP = v.find(r"</p>", candidate)
+  nextText = _findNextText(v, candidate)
+  nextSentenceStart = _getNextSentenceStartAfter(self, candidate)
+
+  # " -" followed by text before the end of the paragraph is not the end of a sentence
+  if re.search(" -$", candidateStr):
+    if nextText < nextCloseP.begin():
+      return _findEndOfSentenceStartingAt(self, candidate)
+
+  if re.search(r"(...|[…”\"])$", candidateStr):
+    if nextText < nextSentenceStart:
+      return _findEndOfSentenceStartingAt(self, candidate)
+
+
   return candidate
 
 # find the next sentence start position after the point specified in startAt
