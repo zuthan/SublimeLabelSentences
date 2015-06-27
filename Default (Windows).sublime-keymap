@@ -1,4 +1,5 @@
 [
+  { "keys": ["ctrl+f9"], "command": "test_stuff", "context": [] },
   { "keys": ["ctrl+f10"], "command": "select_next_sentence", "context": [] },
   { "keys": ["ctrl+f11"], "command": "surround_selection_with_span", "context": [] },
   { "keys": ["ctrl+f12"], "command": "surround_next_sentence_with_span", "context": [] },

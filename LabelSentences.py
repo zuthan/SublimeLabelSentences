@@ -1,6 +1,7 @@
 import sublime, sublime_plugin
 import re
 
+# todo: ensure that sentence ending is followed by a sentence beginning (or EOF) without any text in between
 # todo: '-' followed by a </p> without any text in between is a sentence ending
 # todo: '…' followed by non-capital letter does not end sentence
 # todo: ensure closing parentheses at end of sentence are included in span
@@ -9,27 +10,42 @@ import re
 
 # Plugin Globals
 NoRegion = sublime.Region(-1, -1)
+openTagRx = r"<\w[^>]+>"
+closeTagRx = r"</\w+>"
+tagRx = r"<[^>]+>"
+startSentenceRx = r"\(?[“\"]?\(?[A-Z0-9]"
 endSentenceRx = (
   r"("
     "("
-      "("
-        "(?<!Mr)(?<!Mrs)(?<!Ms)(?<!Dr)(?<!Sr)(?<!Jr)"  # exclude dots after common abbreviations
-        "(?<![A-Z]\.[A-Z])"           # exclude dots in doted abbreviations (doesn't catch first dot)
-        "(?<!\s[A-Z]\.\s[A-Z])"       # exclude dots after initials (doesn't catch first initial)
-        "\.+"     # final punctuation is "."
-      "|"         # or
-        "[?!]+"   # final punctuation is ? or ! (possibly repeated)
-      "|"         # or
-        "…"       # final punctuation is ellipses character: …
-      ")”?"       # (.?!…) may be followed by a close quote
-    ")"
+      "(?<!Mr)(?<!Mrs)(?<!Ms)(?<!Dr)(?<!Sr)(?<!Jr)"  # exclude dots after common abbreviations
+      "(?<![A-Z]\.[A-Z])"           # exclude dots in doted abbreviations (doesn't catch first dot)
+      "(?<!\s[A-Z]\.\s[A-Z])"       # exclude dots after initials (doesn't catch first initial)
+      "\.+"     # final punctuation is "."
+    "|"         # or
+      "[?!]+"   # final punctuation is ? or ! (possibly repeated)
+    "|"         # or
+      "…"       # final punctuation is ellipses "…". The case of an ellipses followed by a lower case letter will be excluded in code.
     "|"
-      "-”"        # cut off dialogue ending (must end with close quote)
+      " -"      # final punctuation is dash " -". The case of a dash not followed by a </p> will be excluded in code.
+    ")"
+    "[”\"]?"        # sentence may end with a close quote
+    "\)?"        # sentence may end with a close parenthesis
   ")"
   "(?!\w)"        # last character of sentence cannot be succeeded directly by a letter (catches first dot in abbreviations)
   "(?!\s[A-Z]\.)"  # exclude first dot in spaced initials such as "J. K. Rowling"
 )
 labelingSpanRx = r"<span id=\"s\d{5}\">"
+
+class TestStuffCommand(sublime_plugin.TextCommand):
+
+  def run(self, edit):
+    v = self.view
+    s = v.sel()
+    start = _getNextSentenceStartAfter(self, s[0].begin())
+    print(start)
+    s.clear()
+    s.add(sublime.Region(start, start))
+
 
 # select the next sentence after the current selection
 class SelectNextSentenceCommand(sublime_plugin.TextCommand):
@@ -37,19 +53,15 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
   def run(self, edit):
     v = self.view
     s = v.sel()
-    newRegions = []
-    for r in s:
-      sentence = _findNextSentenceFromRegion(self, r)
+    if len(s) > 0:
+      r = s[0] # only support single selection for this command
+      sentence = _findNextSentenceAfterPoint(self, r.begin()) if r.empty() else _findNextSentenceAfterRegion(self, r)
+
       if sentence is not None:
         print("found sentence: "+str(v.rowcol(sentence.begin()))+" - "+str(v.rowcol(sentence.end())))
-        newRegions.append(sentence)
-
-    if len(newRegions) > 0:
-      s.clear()
-      s.add_all(newRegions)
-      v.show_at_center(newRegions[0])
-    else:
-      v.run_command("move_to", {"to": "eof", "extend": "false"})
+        s.clear()
+        s.add(sentence)
+        v.show_at_center(sentence)
 
 # surround the current selection with <span> opening and closing tags, with id="s00000"
 class SurroundSelectionWithSpanCommand(sublime_plugin.TextCommand):
@@ -90,21 +102,33 @@ class ReNumberSentenceTagsCommand(sublime_plugin.TextCommand):
 
 # ====== private helpers ======
 
-# find the next region that specifies a sentence beginning in or after the given region
-def _findNextSentenceFromRegion(self, region):
+def _findNextSentenceAfterPoint(self, point):
   v = self.view
-  precedingDotPos = _lastSentenceEndingInOrFirstOneAfterRegion(self, region)
-  if precedingDotPos == -1:
-    return None
 
-  sentenceStart = _getNextSentenceStartAfter(self, precedingDotPos)
-  if sentenceStart == -1:
-    return None
+  sentenceStart = _getNextSentenceStartAfter(self, point)
+  if sentenceStart == -1: return None
+  return _findSentenceStartingAt(self, sentenceStart)
 
-  firstWord = v.find("[A-Z0-9]", precedingDotPos).begin()
-  sentenceEnd = v.find(endSentenceRx, sentenceStart).end()
-  if sentenceEnd == -1:
+# Find the sentence immediately following the sentence delineated by the given region.
+# The command fails with an error message if non-space text is found
+# between the end of the given region and the start of the next sentence.
+def _findNextSentenceAfterRegion(self, region):
+  v = self.view
+
+  sentenceStart = _getNextSentenceStartAfter(self, region.end())
+  if sentenceStart == -1: return None
+  nextText = v.find(r"(\s*<[^>]+>)*\s*(?=[^<>\s])", region.end()).end()
+  if nextText < sentenceStart:
+    print("There is text between the end of the selection and the start of the next sentence.")
     return None
+  return _findSentenceStartingAt(self, sentenceStart)
+
+def _findSentenceStartingAt(self, sentenceStart):
+  v = self.view
+
+  firstWord = v.find("[A-Z0-9]", sentenceStart).begin()
+  sentenceEnd = _findEndOfSentenceStartingAt(self, sentenceStart)
+  if sentenceEnd == -1: return None
 
   # continue searching for sentence end if sentence is 2 characters long: e.g. "A. first example"
   if sentenceEnd - firstWord == 2:
@@ -117,16 +141,17 @@ def _findNextSentenceFromRegion(self, region):
 
   return correctedRegion
 
+
 # find the position of last sentence ending in the given region,
 # or the first one after it if no sentence end is contained within the region
-def _lastSentenceEndingInOrFirstOneAfterRegion(self, region):
+def _lastSentenceEndInOrFirstOneAfterRegion(self, region):
   v = self.view
 
   pos = -1
   searchFrom = region.begin()
   regionEnd = region.end()
   while searchFrom <= region.end():
-    newPos = v.find(endSentenceRx, searchFrom).end()
+    newPos = _findEndOfSentenceStartingAt(self, searchFrom)
     if newPos == -1 or newPos == region.end():
       return newPos
     if pos < 0 or newPos <= region.end():
@@ -135,14 +160,26 @@ def _lastSentenceEndingInOrFirstOneAfterRegion(self, region):
 
   return pos
 
+def _findEndOfSentenceStartingAt(self, sentenceStart):
+  v = self.view
+
+  candidate = v.find(endSentenceRx, sentenceStart).end()
+  return candidate
+
 # find the next sentence start position after the point specified in startAt
 # a sentence can only start in an xml text region (outside a tag)
 # and will be the first capital letter or number after a sentence end.
 def _getNextSentenceStartAfter(self, startAt):
   v = self.view
 
-  nextTag = v.find("<[^>]+>", startAt)
-  candidate = v.find("[A-Z0-9“]", startAt).begin()
+  # if startAt is inside a tag, move it to the end of the tag
+  nextOpenBracket = v.find(r"<", startAt)
+  nextCloseBracket = v.find(r">", startAt)
+  if nextCloseBracket.begin() < nextOpenBracket.begin():
+    startAt = nextCloseBracket.end()
+
+  nextTag = v.find(tagRx, startAt)
+  candidate = v.find(startSentenceRx, startAt).begin()
   if nextTag.begin() == -1 or candidate < nextTag.begin():
     # candidate start position is before next tag, so it's definitely outside a tag
     return candidate
@@ -164,11 +201,11 @@ def _findMatchesInRegion(self, matchRx, region):
 
 # returns a list of regions that delineate the opening xml tags (e.g. <span>) in the given region
 def _findOpeningTagsInRegion(self, region):
-  return _findMatchesInRegion(self, "<(?!/)[^>]+>", region)
+  return _findMatchesInRegion(self, openTagRx, region)
 
 # returns a list of regions that delineate the closing xml tags (e.g. <span>) in the given region
 def _findClosingTagsInRegion(self, region):
-  return _findMatchesInRegion(self, "</[^>]+>", region)
+  return _findMatchesInRegion(self, closeTagRx, region)
 
 # returns a bool indicating whether the given `regions` intersect the `region`
 def _regionsIntersectRegion(self, regions, region):

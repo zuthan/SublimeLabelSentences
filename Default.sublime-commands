@@ -1,5 +1,9 @@
 [
   {
+    "caption": "Label Sentences - Test Stuff",
+    "command": "test_stuff"
+  },
+  {
     "caption": "Label Sentences - Select Next Sentence",
     "command": "select_next_sentence"
   },
