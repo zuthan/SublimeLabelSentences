@@ -1,18 +1,20 @@
 import sublime, sublime_plugin
 import re
 
-# todo: ensure that sentence ending is followed by a sentence beginning (or EOF) without any text in between
-# todo: ensure closing parentheses at end of sentence are included in span
-# todo: ensure opening parentheses at start of sentence are included in span
-# todo: "he said" or variants after speech should be included in sentence
-
 # Plugin Globals
 NoRegion = sublime.Region(-1, -1)
 openTagRx = r"<\w[^>]+>"
 closeTagRx = r"</\w+>"
 tagRx = r"<[^>]+>"
-startSentenceRx = r"\(?[“\"]?\(?[A-Z0-9]"
-upToNextTextRx = r"(\s*<[^>]+>)*\s*(?=[^<>\s])"
+startSentenceRx = (
+  r"("
+      "[“\"(]+" # open quote or parenthesis
+      "(<[^>]+>)*" # possibly followed by tags
+    ")?" # (maybe)
+    "[A-Z0-9]" # followed by a capital latter or digit
+)
+upToNextNonspaceTextRx = r"(\s*<[^>]+>)*\s*(?=[^<>\s])"
+upToNextTextRx = r"(<[^>]+>)*(?!=<)"
 endSentenceRx = (
   r"("
     "("
@@ -41,10 +43,8 @@ class TestStuffCommand(sublime_plugin.TextCommand):
     v = self.view
     s = v.sel()
     start = _getNextSentenceStartAfter(self, s[0].begin())
-    print(start)
     s.clear()
     s.add(sublime.Region(start, start))
-
 
 # select the next sentence after the current selection
 class SelectNextSentenceCommand(sublime_plugin.TextCommand):
@@ -57,7 +57,7 @@ class SelectNextSentenceCommand(sublime_plugin.TextCommand):
       sentence = _findNextSentenceAfterPoint(self, r.begin()) if r.empty() else _findNextSentenceAfterRegion(self, r)
 
       if sentence is not None:
-        print("found sentence: "+str(v.rowcol(sentence.begin()))+" - "+str(v.rowcol(sentence.end())))
+        # print("found sentence: "+textPositionAsString(v, sentence.begin())+" - "+textPositionAsString(v, sentence.end()))
         s.clear()
         s.add(sentence)
         v.show_at_center(sentence)
@@ -109,9 +109,14 @@ def _findNextSentenceAfterPoint(self, point):
   if sentenceStart == -1: return None
   return _findSentenceStartingAt(self, sentenceStart)
 
+# returns the position of the next character of non-space text within the xml doc,
+# starting from `searchFrom`
+def _findNextNonspaceTextStart(view, searchFrom):
+  return view.find(upToNextNonspaceTextRx, searchFrom).end()
+
 # returns the position of the next character of text within the xml doc,
 # starting from `searchFrom`
-def _findNextText(view, searchFrom):
+def _findNextTextStart(view, searchFrom):
   return view.find(upToNextTextRx, searchFrom).end()
 
 # Find the sentence immediately following the sentence delineated by the given region.
@@ -122,8 +127,8 @@ def _findNextSentenceAfterRegion(self, region):
 
   sentenceStart = _getNextSentenceStartAfter(self, region.end())
   if sentenceStart == -1: return None
-  nextText = _findNextText(v, region.end())
-  if nextText < sentenceStart:
+  nextTextStart = _findNextNonspaceTextStart(v, region.end())
+  if nextTextStart < sentenceStart:
     print("There is text between the end of the selection and the start of the next sentence.")
     return None
   return _findSentenceStartingAt(self, sentenceStart)
@@ -144,6 +149,12 @@ def _findSentenceStartingAt(self, sentenceStart):
   # ensure that opening tags have matching closing tags (and vice versa) inside sentence region
   correctedRegion = _expandRegionToEnsureMatchingTags(self, region)
 
+  # if the text immediately following candidate region is a close quote or parentheses, extend to include it.
+  closeQuoteOrParen = v.find(r"[”\")]+", correctedRegion.end())
+  if closeQuoteOrParen.begin() == correctedRegion.end():
+    print("final close quote or close parenthesis separated by tag(s)")
+    correctedRegion = correctedRegion.cover(closeQuoteOrParen)
+
   return correctedRegion
 
 def _findEndOfSentenceStartingAt(self, sentenceStart):
@@ -153,19 +164,29 @@ def _findEndOfSentenceStartingAt(self, sentenceStart):
   candidateStr = v.substr(candidateR)
   candidate = candidateR.end()
 
-  nextCloseP = v.find(r"</p>", candidate)
-  nextText = _findNextText(v, candidate)
-  nextSentenceStart = _getNextSentenceStartAfter(self, candidate)
+  nextNonspaceTextStart = _findNextNonspaceTextStart(v, candidate)
 
   # " -" followed by text before the end of the paragraph is not the end of a sentence
+  nextCloseP = v.find(r"</p>", candidate)
   if re.search(" -$", candidateStr):
-    if nextText < nextCloseP.begin():
+    if nextNonspaceTextStart < nextCloseP.begin():
+      print("dash inside paragraph")
       return _findEndOfSentenceStartingAt(self, candidate)
 
+  # if candidate ends with an ellipses or close quote that isn't followed by a sentence start, extend to next sentence end.
+  nextSentenceStart = _getNextSentenceStartAfter(self, candidate)
   if re.search(r"(...|[…”\"])$", candidateStr):
-    if nextText < nextSentenceStart:
+    if nextNonspaceTextStart < nextSentenceStart:
+      print("ellipses or close quote not followed by sentence start")
       return _findEndOfSentenceStartingAt(self, candidate)
 
+  # if the next text after candidate end is a close quote or close parentheses, extend to include it.
+  nextTextStart = _findNextTextStart(v, candidate)
+  nextCloseQuoteOrParenStart = v.find(r"(<[^>]+>)*(?=[”\")])", candidate).end()
+  if nextTextStart == nextCloseQuoteOrParenStart:
+    closeQuoteOrParen = v.find(r"[”\")]+", nextCloseQuoteOrParenStart)
+    print("final close quote or close parenthesis separated by tag(s)")
+    return closeQuoteOrParen.end()
 
   return candidate
 
@@ -255,7 +276,7 @@ def _findLastOpeningTagBefore(self, tagName, endingAt, exclusions):
   # finds the last tag of type `tagName` starting in region `region`
   def findLastMatchInRegion(region):
     firstMatch = v.find(matchRx, region.begin())
-    print("first match for '"+matchRx+"' in region = "+str(firstMatch))
+    # print("first match for '"+matchRx+"' in region = "+str(firstMatch))
     if firstMatch.empty() or firstMatch.begin() > region.end():
       return NoRegion
     lastMatch = findLastMatchInRegion(sublime.Region(firstMatch.end(), region.end()))
@@ -270,7 +291,7 @@ def _findLastOpeningTagBefore(self, tagName, endingAt, exclusions):
     v = self.view
     # initially search the 100 characters before endPoint
     startPoint = max(0, endPoint - 100)
-    print("searching for "+tagName+" between "+str(v.rowcol(startPoint))+" and "+str(v.rowcol(endPoint)))
+    # print("searching for "+tagName+" between "+textPositionAsString(v, startPoint)+" and "+textPositionAsString(v, endPoint))
     searchRegion = sublime.Region(startPoint, endPoint)
     match = findLastMatchInRegion(searchRegion)
     if match.empty():
@@ -306,3 +327,7 @@ def _expandRegionToEnsureMatchingTags(self, region):
   expanded = _expandRegionToEncloseMatchingClosingTags(self, region)
   expanded = _expandRegionToEncloseMatchingOpeningTags(self, expanded)
   return expanded
+
+def textPositionAsString(view, position):
+  (row,col) = view.rowcol(position)
+  return "("+str(row+1)+","+str(col+1)+")"
