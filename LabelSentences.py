@@ -6,6 +6,7 @@ NoRegion = sublime.Region(-1, -1)
 openTagRx = r"<\w[^>]+>"
 closeTagRx = r"</\w+>"
 tagRx = r"<[^>]+>"
+tagsNotAllowedInSpanRx = r"<(p|div|br)\b[^>]*>"
 startSentenceRx = (
   r"("
       "[“\"(]+" # open quote or parenthesis
@@ -48,46 +49,30 @@ class TestStuffCommand(sublime_plugin.TextCommand):
 
 # select the next sentence after the current selection
 class SelectNextSentenceCommand(sublime_plugin.TextCommand):
+  def run(self, edit):
+    _selectNextSentence(self, edit)
 
+# surround the current selection with <span> opening and closing tags, with id="s00000"
+class SurroundSelectionWithSpanCommand(sublime_plugin.TextCommand):
+  def run(self, edit):
+    _surroundSelectionsWithSpan(self, edit)
+
+class SurroundSelectionAndFindNextSentenceCommand(sublime_plugin.TextCommand):
   def run(self, edit):
     v = self.view
     s = v.sel()
     if len(s) > 0:
       r = s[0] # only support single selection for this command
-      sentence = _findNextSentenceAfterPoint(self, r.begin()) if r.empty() else _findNextSentenceAfterRegion(self, r)
+      if r.empty(): # selection is empty so select the next sentence after cursor
+        sentence = _findNextSentenceAfterPoint(self, r.begin())
+        _selectRegion(self, sentence)
+      else: # we already have a selection
+        # surround the current selection with labelling span unless it is already labeled
+        if not _regionIsLabeled(self, r):
+          _surroundRegionWithSpan(self, edit, r)
 
-      if sentence is not None:
-        # print("found sentence: "+textPositionAsString(v, sentence.begin())+" - "+textPositionAsString(v, sentence.end()))
-        s.clear()
-        s.add(sentence)
-        v.show_at_center(sentence)
-
-# surround the current selection with <span> opening and closing tags, with id="s00000"
-class SurroundSelectionWithSpanCommand(sublime_plugin.TextCommand):
-  def run(self, edit):
-    v = self.view
-    for r in v.sel():
-      selectionText = v.substr(r)
-      if len(selectionText) > 0:
-        # fail if selection already contains labeled span
-        if re.search(labelingSpanRx, selectionText):
-          print("selection already contains a labeled span")
-          return
-        # fail if selection is immediately surrounded by labeling span tags
-        precedingOpeningSpan = _findLastOpeningTagBefore(self, "span", r.begin(), [])
-        if precedingOpeningSpan.end() == r.begin() and \
-          re.search(labelingSpanRx, v.substr(precedingOpeningSpan)):
-          print("selection is already surrounded by a labeled span")
-          return
-        # surround region with labeled span tags
-        surrounded = "<span id=\"s00000\">" + selectionText + "</span>"
-        v.replace(edit, r, surrounded)
-
-class SurroundNextSentenceWithSpanCommand(sublime_plugin.TextCommand):
-  def run(self, edit):
-    v = self.view
-    v.run_command("select_next_sentence")
-    v.run_command("surround_selection_with_span")
+        # select the next sentence
+        _selectNextSentence(self, edit)
 
 class ReNumberSentenceTagsCommand(sublime_plugin.TextCommand):
   def run(self, edit):
@@ -100,6 +85,86 @@ class ReNumberSentenceTagsCommand(sublime_plugin.TextCommand):
       v.run_command("insert_nums", {"format": "1:1~0=5d", "quiet": True})
 
 # ====== private helpers ======
+
+def _selectRegion(self, region):
+  v = self.view
+  s = v.sel()
+
+  print("select region: "+textPositionAsString(v, region.begin())+" - "+textPositionAsString(v, region.end()))
+  s.clear()
+  s.add(region)
+  v.show_at_center(region)
+
+# select the next sentence after the current selection
+# return whether the operation succeeded
+def _selectNextSentence(self, edit):
+  v = self.view
+  s = v.sel()
+  if len(s) > 0:
+    r = s[0] # only support single selection for this command
+    sentence = _findNextSentenceAfterPoint(self, r.begin()) if r.empty() else _findNextSentenceAfterRegion(self, r)
+
+    if sentence is not None:
+      # print("found sentence: "+textPositionAsString(v, sentence.begin())+" - "+textPositionAsString(v, sentence.end()))
+      _selectRegion(self, sentence)
+      return True
+    else:
+      print("could not find another sentence after selection")
+  else:
+    print("this command only works with a single selection")
+  return False
+
+# surround the current selection with <span> opening and closing tags, with id="s00000"
+# return whether the operation succeeded
+def _surroundSelectionsWithSpan(self, edit):
+  v = self.view
+  for r in v.sel():
+    if not _surroundRegionWithSpan(self, edit, r):
+      return False
+  return True
+
+# returns True if the given region contains or is immediately preceded by a sentence labeling span
+def _regionIsLabeled(self, region):
+  v = self.view
+
+  if region.empty():
+    return False
+
+  regionText = v.substr(region)
+  # does region contain a labeled span?
+  if re.search(labelingSpanRx, regionText):
+    return True
+  # is region immediately preceded by labeling span tag?
+  precedingOpeningSpan = _findLastOpeningTagBefore(self, "span", region.begin(), [])
+  if precedingOpeningSpan.end() == region.begin() and \
+    re.search(labelingSpanRx, v.substr(precedingOpeningSpan)):
+    return True
+  return False
+
+# surround the given region with <span> opening and closing tags, with id="s00000"
+# return whether the operation succeeded
+def _surroundRegionWithSpan(self, edit, region):
+  v = self.view
+
+  if not region.empty():
+    regionText = v.substr(region)
+
+    # don't surround if region is already labeled
+    if _regionIsLabeled(self, region):
+      print("selection is already labeled with a span")
+      return False
+
+    # fail if the region contains elements that can't be nested inside a span
+    res = re.search(tagsNotAllowedInSpanRx, regionText)
+    if res:
+      print("elements of type '"+res.group(1)+"' are not allowed inside span elements")
+      return False
+
+    # surround region with labeled span tags
+    surrounded = "<span id=\"s00000\">" + regionText + "</span>"
+    v.replace(edit, region, surrounded)
+    return True
+  return False
 
 # Find the next sentence starting after the given point
 def _findNextSentenceAfterPoint(self, point):
@@ -328,6 +393,7 @@ def _expandRegionToEnsureMatchingTags(self, region):
   expanded = _expandRegionToEncloseMatchingOpeningTags(self, expanded)
   return expanded
 
+# Returns the view position in the form (row,col) where row and col are 1-indexed
 def textPositionAsString(view, position):
   (row,col) = view.rowcol(position)
   return "("+str(row+1)+","+str(col+1)+")"

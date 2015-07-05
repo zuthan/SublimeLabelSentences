@@ -12,8 +12,8 @@
     "command": "surround_selection_with_span"
   },
   {
-    "caption": "Label Sentences - Surround Next Sentence With Span",
-    "command": "surround_next_sentence_with_span"
+    "caption": "Label Sentences - Surround Sentence and Find Next Sentence",
+    "command": "surround_selection_and_find_next_sentence"
   },
     {
     "caption": "Label Sentences - Re-Number Sentence Tags",
