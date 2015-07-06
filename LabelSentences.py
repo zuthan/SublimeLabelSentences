@@ -7,13 +7,19 @@ openTagRx = r"<\w[^>]+>"
 closeTagRx = r"</\w+>"
 tagRx = r"<[^>]+>"
 tagsNotAllowedInSpanRx = r"<(p|div|br)\b[^>]*>"
+
 startSentenceRx = (
   r"("
       "[“\"(]+" # open quote or parenthesis
       "(<[^>]+>)*" # possibly followed by tags
     ")?" # (maybe)
     "[A-Z0-9]" # followed by a capital latter or digit
+    "(?!\w*\s(said|asked|exclaimed|declared|remarked)\.)"
 )
+closeQuoteRx = r"[”\"’]"
+closeQuoteOrParenRx = r"[”\"’)]"
+closeQuoteBangOrEllipsesRx = r"(...|[…!”\"’])"
+
 upToNextNonspaceTextRx = r"(\s*<[^>]+>)*\s*(?=[^<>\s])"
 upToNextTextRx = r"(<[^>]+>)*(?!=<)"
 endSentenceRx = (
@@ -30,12 +36,13 @@ endSentenceRx = (
     "|"
       " -"      # final punctuation is dash " -". The case of a dash not followed by a </p> will be excluded in code.
     ")"
-    "[”\"]?"        # sentence may end with a close quote
-    "\)?"        # sentence may end with a close parenthesis
+    "[”\"’]?"    # sentence may end with a close quote
+    "\)?"        # sentence may end with a close parentheses
   ")"
   "(?!\w)"        # last character of sentence cannot be succeeded directly by a letter (catches first dot in abbreviations)
   "(?!\s[A-Z]\.)"  # exclude first dot in spaced initials such as "J. K. Rowling"
 )
+
 labelingSpanRx = r"<span id=\"s\d{5}\">"
 
 class TestStuffCommand(sublime_plugin.TextCommand):
@@ -211,49 +218,58 @@ def _findSentenceStartingAt(self, sentenceStart):
 
   region = sublime.Region(sentenceStart, sentenceEnd)
 
-  # ensure that opening tags have matching closing tags (and vice versa) inside sentence region
-  correctedRegion = _expandRegionToEnsureMatchingTags(self, region)
-
-  # if the text immediately following candidate region is a close quote or parentheses, extend to include it.
-  closeQuoteOrParen = v.find(r"[”\")]+", correctedRegion.end())
-  if closeQuoteOrParen.begin() == correctedRegion.end():
-    print("final close quote or close parenthesis separated by tag(s)")
-    correctedRegion = correctedRegion.cover(closeQuoteOrParen)
-
-  return correctedRegion
+  return _extendRegionToValidSentence(self, region)
 
 def _findEndOfSentenceStartingAt(self, sentenceStart):
   v = self.view
 
   candidateR = v.find(endSentenceRx, sentenceStart)
   candidateStr = v.substr(candidateR)
-  candidate = candidateR.end()
+  candidateEnd = candidateR.end()
 
-  nextNonspaceTextStart = _findNextNonspaceTextStart(v, candidate)
+  nextNonspaceTextStart = _findNextNonspaceTextStart(v, candidateEnd)
 
   # " -" followed by text before the end of the paragraph is not the end of a sentence
-  nextCloseP = v.find(r"</p>", candidate)
+  nextCloseP = v.find(r"</p>", candidateEnd)
   if re.search(" -$", candidateStr):
     if nextNonspaceTextStart < nextCloseP.begin():
       print("dash inside paragraph")
-      return _findEndOfSentenceStartingAt(self, candidate)
+      return _findEndOfSentenceStartingAt(self, candidateEnd)
 
   # if candidate ends with an ellipses or close quote that isn't followed by a sentence start, extend to next sentence end.
-  nextSentenceStart = _getNextSentenceStartAfter(self, candidate)
-  if re.search(r"(...|[…”\"])$", candidateStr):
+  nextSentenceStart = _getNextSentenceStartAfter(self, candidateEnd)
+  if re.search(closeQuoteBangOrEllipsesRx+r"$", candidateStr):
     if nextNonspaceTextStart < nextSentenceStart:
       print("ellipses or close quote not followed by sentence start")
-      return _findEndOfSentenceStartingAt(self, candidate)
+      return _findEndOfSentenceStartingAt(self, candidateEnd)
 
-  # if the next text after candidate end is a close quote or close parentheses, extend to include it.
-  nextTextStart = _findNextTextStart(v, candidate)
-  nextCloseQuoteOrParenStart = v.find(r"(<[^>]+>)*(?=[”\")])", candidate).end()
-  if nextTextStart == nextCloseQuoteOrParenStart:
-    closeQuoteOrParen = v.find(r"[”\")]+", nextCloseQuoteOrParenStart)
-    print("final close quote or close parenthesis separated by tag(s)")
-    return closeQuoteOrParen.end()
+  return candidateEnd
 
-  return candidate
+def _extendRegionToValidSentence(self, region):
+  v = self.view
+
+  # ensure that opening tags have matching closing tags (and vice versa) inside sentence region
+  correctedRegion = _expandRegionToEnsureMatchingTags(self, region)
+
+  # if the next text after candidate end is a close quote or parentheses, extend to include it.
+  trailingQuoteOrParen = _findTrailingCloseQuoteOrParenAt(v, correctedRegion.end())
+  if trailingQuoteOrParen:
+    correctedRegion = correctedRegion.cover(trailingQuoteOrParen)
+
+  # if we had to make adjustments, some conditions may no longer be satisfied so run them again
+  if correctedRegion != region:
+    return _extendRegionToValidSentence(self, correctedRegion)
+
+  return region
+
+# if the next text after the given position is a string of close quote or close parentheses,
+# return the region containing those characters
+def _findTrailingCloseQuoteOrParenAt(v, position):
+  nextTextStart = _findNextTextStart(v, position)
+  closeQuoteOrParen = v.find(closeQuoteOrParenRx+r"+", nextTextStart)
+  if nextTextStart == closeQuoteOrParen.begin():
+    return closeQuoteOrParen
+  return None
 
 # find the next sentence start position after the point specified in startAt
 # a sentence can only start in an xml text region (outside a tag)
