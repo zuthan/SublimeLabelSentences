@@ -4,6 +4,10 @@
     "command": "test_stuff"
   },
   {
+    "caption": "Label Sentences - Select Labelled Sentences",
+    "command": "select_labelled_sentences"
+  },
+  {
     "caption": "Label Sentences - Select Next Sentence",
     "command": "select_next_sentence"
   },
