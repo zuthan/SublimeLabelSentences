@@ -1,0 +1,1 @@
+* consider selection already labelled if a sequence of adjacent opening tags, of which the first contains id="s\d{5}", immediately precedes the selection

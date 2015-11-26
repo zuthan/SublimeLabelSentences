@@ -43,11 +43,10 @@ endSentenceRx = (
   "(?!\s[A-Z]\.)"  # exclude first dot in spaced initials such as "J. K. Rowling"
 )
 
-labellingSpanOpenTagRx = r"<span id=\"s\d{5}\">"
-labellingSpanRx = labellingSpanOpenTagRx + r"(.(?!</span>))+.</span>"
+labellingElemOpenTagRx = r"<(p|span) [\w= \"]*id=\"s\d{5}\"[\w= \"]*>"
+labelledRegionRx = labellingElemOpenTagRx + r"(.(?!</\1>))+.</\1>"
 
 class TestStuffCommand(sublime_plugin.TextCommand):
-
   def run(self, edit):
     v = self.view
     s = v.sel()
@@ -59,7 +58,7 @@ class SelectLabelledSentences(sublime_plugin.TextCommand):
   def run(self, edit):
     v = self.view
     s = v.sel()
-    sentences = v.find_all(labellingSpanRx)
+    sentences = v.find_all(labelledRegionRx)
     s.clear()
     s.add_all(sentences)
 
@@ -139,7 +138,7 @@ def _surroundSelectionsWithSpan(self, edit):
       return False
   return True
 
-# returns True if the given region contains or is immediately preceded by a sentence labeling span
+# returns True if the given region contains or is immediately preceded by a sentence labelling element
 def _regionIsLabeled(self, region):
   v = self.view
 
@@ -148,12 +147,12 @@ def _regionIsLabeled(self, region):
 
   regionText = v.substr(region)
   # does region contain a labeled span?
-  if re.search(labellingSpanOpenTagRx, regionText):
+  if re.search(labellingElemOpenTagRx, regionText):
     return True
   # is region immediately preceded by labeling span tag?
   precedingOpeningSpan = _findLastOpeningTagBefore(self, "span", region.begin(), [])
   if precedingOpeningSpan.end() == region.begin() and \
-    re.search(labellingSpanOpenTagRx, v.substr(precedingOpeningSpan)):
+    re.search(labellingElemOpenTagRx, v.substr(precedingOpeningSpan)):
     return True
   return False
 
